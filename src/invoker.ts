@@ -20,13 +20,19 @@ export class Invoker {
         ...args: T
     ): Promise<InvokerResponse<U>> {
         const getDuration = this.startTiming()
-        
+
         try {
             const value = await fn(...args)
-            const duration = getDuration()
-            return { duration, success: value }
+            return { duration: getDuration(), success: value }
         } catch (error) {
-            return { duration: getDuration(), handled: this.errorFilter(error), reason: error }
+            const duration = getDuration()
+            const handled = this.errorFilter(error)
+
+            if (!handled) {
+                throw error
+            }
+
+            return { duration, handled, reason: error }
         }
     }
 }
