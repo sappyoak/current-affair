@@ -1,4 +1,5 @@
 export interface IBucket {
+    actionAttempts: number
     failures: number
     fallbacks: number
     successes: number
@@ -12,6 +13,7 @@ export interface IBucket {
 
 export function createBucket(): IBucket {
     return {
+        actionAttempts: 0,
         failures: 0,
         fallbacks: 0,
         successes: 0,

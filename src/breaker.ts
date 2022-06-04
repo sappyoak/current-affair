@@ -96,8 +96,10 @@ export class Breaker extends EventEmitterAsyncResource {
         const runCheck = async () => {
             try {
                 await this.options.healthCheck.apply(this)
+                this.stats.updateActiveBucket('healthChecksPassed')
             } catch (error) {
                 this.open()
+                this.stats.updateActiveBucket('healthChecksFailed')
             }
         }
 
