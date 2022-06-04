@@ -25,8 +25,10 @@ export class Breaker extends EventEmitterAsyncResource {
     readonly options: IBreakerOptions
     readonly name: string
     readonly group: string
-    readonly enabled: boolean
-    readonly state: number = BreakerStates.Closed
+
+    protected enabled: boolean
+    protected lastOpenedAt: number
+    protected state: number = BreakerStates.Closed
 
     constructor(passedOptions: Partial<IBreakerOptions> = {}) {
         const options = createBreakerOptions(passedOptions)
@@ -37,4 +39,13 @@ export class Breaker extends EventEmitterAsyncResource {
         this.group = options.group
         this.enabled = options.enabled
     }
+
+    public open() {
+        if (this.state === BreakerStates.Detached || this.state === BreakerStates.Open) {
+            return
+        }
+
+        this.state = BreakerStates.Open
+        this.lastOpenedAt = Date.now()
+    }   
 }
