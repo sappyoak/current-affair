@@ -40,7 +40,7 @@ export class Breaker extends EventEmitterAsyncResource {
         this.enabled = options.enabled
     }
 
-    public open() {
+    public open(): void {
         if (this.state === BreakerStates.Detached || this.state === BreakerStates.Open) {
             return
         }
@@ -48,4 +48,28 @@ export class Breaker extends EventEmitterAsyncResource {
         this.state = BreakerStates.Open
         this.lastOpenedAt = Date.now()
     }   
+
+    public close(): void {
+        if (this.state === BreakerStates.Closed || this.state === BreakerStates.Detached) {
+            return
+        }
+
+        this.state = BreakerStates.Closed
+    }
+
+    public detach(): { attach: () => void } {
+        this.state = BreakerStates.Detached
+        
+        let attached = false
+        return {
+            attach: () => {
+                if (attached) return
+                attached = true
+
+                if (this.state === BreakerStates.Detached) {
+                    this.state = BreakerStates.Closed
+                }
+            }
+        }
+    }
 }
