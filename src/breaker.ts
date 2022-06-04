@@ -6,6 +6,7 @@
 import { EventEmitterAsyncResource } from 'node:events'
 
 import { IBreakerOptions, createBreakerOptions } from './options'
+import { Invoker, InvokerResponse } from './invoker'
 import { Stats } from './stats'
 
 export enum BreakerStates {
@@ -30,6 +31,8 @@ export class Breaker extends EventEmitterAsyncResource {
     protected enabled: boolean
     protected lastOpenedAt: number
     protected healthCheckInterval: NodeJS.Timer
+    protected pendingHalfOpenPromise
+    protected invoker: Invoker
     protected stats: Stats
     protected state: number = BreakerStates.Closed
     
@@ -42,7 +45,9 @@ export class Breaker extends EventEmitterAsyncResource {
         this.group = options.group
         this.enabled = options.enabled
 
+        this.invoker = new Invoker(options.errorFilter)
         this.stats = new Stats(options)
+
         this.setupHealthCheck()
     }
 
@@ -53,6 +58,7 @@ export class Breaker extends EventEmitterAsyncResource {
 
         this.state = BreakerStates.Open
         this.lastOpenedAt = Date.now()
+        this.stats.updateActiveBucket('shortCircuits')
     }   
 
     public close(): void {
@@ -82,6 +88,88 @@ export class Breaker extends EventEmitterAsyncResource {
                 }
             }
         }
+    }
+
+    public async execute<T>(
+        fn: (...args: unknown[]) => PromiseLike<T> | T
+    ): Promise<T> {
+        if (this.state !== BreakerStates.Detached) {
+            this.stats.updateActiveBucket('actionAttempts')
+        }
+        
+        switch (this.state) {
+            case BreakerStates.Closed: {
+                const result = await this.invoker.invoke(fn)
+                if ('success' in result) {
+                    this.stats.updateActiveBucket('successes', result.duration)
+                } else {
+                    // @TODO: Handle Fallback
+                    this.stats.updateActiveBucket('failures', result.duration)
+                    if (this.stats.isOverThreshold()) {
+                        this.open()
+                    }
+
+                }
+
+                return this.unwrapResponse(result)
+            }
+
+            case BreakerStates.HalfOpen: {
+                await this.pendingHalfOpenPromise.catch(() => undefined)
+                return this.execute(fn)
+            }
+
+            case BreakerStates.Open: {
+                if (Date.now() - this.lastOpenedAt < this.options.halfOpenTimeout) {
+                    this.stats.updateActiveBucket('shortCircuits')
+                    throw new Error(`The Circuit is open`)
+                }
+
+                // Otherwise it is safe for us to move into the half open state
+                this.pendingHalfOpenPromise = this.halfOpen(fn)
+                this.state = BreakerStates.HalfOpen
+                return this.pendingHalfOpenPromise
+            }
+
+            case BreakerStates.Detached: {
+                throw new Error(`The Breaker is currently detached. Will Fail until reattached`)
+            }
+
+            default: {
+                throw new Error(`Unexpected state value: ${this.state}`)
+            }
+        }
+    }
+
+    private async halfOpen<T>(
+        fn: (...args: unknown[]) => PromiseLike<T> | T
+    ): Promise<T> {
+        try {
+            const result = await this.invoker.invoke(fn)
+            
+            if ('success' in result) {
+                this.stats.updateActiveBucket('successes', result.duration)
+                this.close()
+            } else {
+                this.stats.updateActiveBucket('failures', result.duration)
+                this.open()
+            }
+
+            return this.unwrapResponse(result)
+        } catch (error) {
+            // This is an error, but it realistically shouldn't be one we are meant to retry.
+            // Consider this "successful" for now and revisit
+            this.close()
+            throw error
+        }
+    }
+
+    private unwrapResponse<T>(response: InvokerResponse<T>) {
+        if ('reason' in response) {
+            throw response.reason
+        }
+
+        return response.success
     }
 
     private setupHealthCheck() {
