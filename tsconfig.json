@@ -1,5 +1,5 @@
 {
-    "compierOptions": {
+    "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "node",
