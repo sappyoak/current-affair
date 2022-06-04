@@ -1,9 +1,4 @@
-// @TODO: Fix this. Can't add new top-level methods to 3rd-party modules in
-//        User land code. Would rather not have a custom implementation of
-//        this when one exists in node core. Will just fork and submit a PR to @types/node
-//        if it isn't already in progress for v18.
-// @ts-ignore
-import { EventEmitterAsyncResource } from 'node:events'
+import { EventEmitter } from 'node:events'
 
 import { IBreakerOptions, createBreakerOptions } from './options'
 import { Invoker, InvokerResponse } from './invoker'
@@ -23,7 +18,7 @@ export enum BreakerStates {
     Detached
 }
 
-export class Breaker extends EventEmitterAsyncResource {
+export class Breaker extends EventEmitter{
     readonly options: IBreakerOptions
     readonly name: string
     readonly group: string
@@ -37,9 +32,9 @@ export class Breaker extends EventEmitterAsyncResource {
     protected state: number = BreakerStates.Closed
     
     constructor(passedOptions: Partial<IBreakerOptions> = {}) {
-        const options = createBreakerOptions(passedOptions)
-        super({ captureRejections: true, name: options.name })
+        super({ captureRejections: true })
 
+        const options = createBreakerOptions(passedOptions)
         this.options = options
         this.name = options.name
         this.group = options.group
@@ -51,7 +46,7 @@ export class Breaker extends EventEmitterAsyncResource {
         this.setupHealthCheck()
     }
 
-    public open(): void {
+    public open(reason?: unknown): void {
         if (this.state === BreakerStates.Detached || this.state === BreakerStates.Open) {
             return
         }
@@ -59,6 +54,7 @@ export class Breaker extends EventEmitterAsyncResource {
         this.state = BreakerStates.Open
         this.lastOpenedAt = Date.now()
         this.stats.updateActiveBucket('shortCircuits')
+        this.emit('open', { reason })
     }   
 
     public close(): void {
@@ -67,6 +63,7 @@ export class Breaker extends EventEmitterAsyncResource {
         }
 
         this.state = BreakerStates.Closed
+        this.emit('close')
     }
 
     public detach(): { attach: () => void } {
@@ -75,6 +72,8 @@ export class Breaker extends EventEmitterAsyncResource {
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval)
         }
+        
+        this.emit('detached')
 
         let attached = false
         return {
@@ -85,6 +84,7 @@ export class Breaker extends EventEmitterAsyncResource {
                 if (this.state === BreakerStates.Detached) {
                     this.state = BreakerStates.Closed
                     this.setupHealthCheck()
+                    this.emit('attached')
                 }
             }
         }
@@ -96,7 +96,7 @@ export class Breaker extends EventEmitterAsyncResource {
         if (this.state !== BreakerStates.Detached) {
             this.stats.updateActiveBucket('actionAttempts')
         }
-        
+
         switch (this.state) {
             case BreakerStates.Closed: {
                 const result = await this.invoker.invoke(fn)
@@ -152,7 +152,7 @@ export class Breaker extends EventEmitterAsyncResource {
                 this.close()
             } else {
                 this.stats.updateActiveBucket('failures', result.duration)
-                this.open()
+                this.open(result?.reason)
             }
 
             return this.unwrapResponse(result)
