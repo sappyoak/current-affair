@@ -6,6 +6,7 @@
 import { EventEmitterAsyncResource } from 'node:events'
 
 import { IBreakerOptions, createBreakerOptions } from './options'
+import { Stats } from './stats'
 
 export enum BreakerStates {
     /** Normal Operation. Actions Execute normally */
@@ -29,8 +30,9 @@ export class Breaker extends EventEmitterAsyncResource {
     protected enabled: boolean
     protected lastOpenedAt: number
     protected healthCheckInterval: NodeJS.Timer
+    protected stats: Stats
     protected state: number = BreakerStates.Closed
-
+    
     constructor(passedOptions: Partial<IBreakerOptions> = {}) {
         const options = createBreakerOptions(passedOptions)
         super({ captureRejections: true, name: options.name })
@@ -40,6 +42,7 @@ export class Breaker extends EventEmitterAsyncResource {
         this.group = options.group
         this.enabled = options.enabled
 
+        this.stats = new Stats(options)
         this.setupHealthCheck()
     }
 
