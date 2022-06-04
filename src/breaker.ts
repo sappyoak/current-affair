@@ -28,6 +28,7 @@ export class Breaker extends EventEmitterAsyncResource {
 
     protected enabled: boolean
     protected lastOpenedAt: number
+    protected healthCheckInterval: NodeJS.Timer
     protected state: number = BreakerStates.Closed
 
     constructor(passedOptions: Partial<IBreakerOptions> = {}) {
@@ -38,6 +39,8 @@ export class Breaker extends EventEmitterAsyncResource {
         this.name = options.name
         this.group = options.group
         this.enabled = options.enabled
+
+        this.setupHealthCheck()
     }
 
     public open(): void {
@@ -60,6 +63,10 @@ export class Breaker extends EventEmitterAsyncResource {
     public detach(): { attach: () => void } {
         this.state = BreakerStates.Detached
         
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval)
+        }
+
         let attached = false
         return {
             attach: () => {
@@ -68,8 +75,29 @@ export class Breaker extends EventEmitterAsyncResource {
 
                 if (this.state === BreakerStates.Detached) {
                     this.state = BreakerStates.Closed
+                    this.setupHealthCheck()
                 }
             }
         }
+    }
+
+    private setupHealthCheck() {
+        if (!this.options.healthCheck) {
+            return
+        }
+
+        if (typeof this.options.healthCheck !== 'function') {
+            throw new TypeError(`options.healthCheck needs to be a function. Received ${typeof this.options.healthCheck}`)
+        }
+        
+        const runCheck = async () => {
+            try {
+                await this.options.healthCheck.apply(this)
+            } catch (error) {
+                this.open()
+            }
+        }
+
+        this.healthCheckInterval = setInterval(runCheck, this.options.healthCheckInterval)
     }
 }

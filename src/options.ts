@@ -35,6 +35,14 @@ export interface IBreakerOptions {
      *  return data from a more reliable, but potentially slower source or provide an alternative response
      *  Default: null */
     fallback?: (error: Error) => unknown
+    /** An optional Promise returning function that will be called periodically. If the promise is rejected then
+     *  the breaker will open the circuit. This works alongside the normal bevhaior of the circuit breaker and not as
+     *  an either or meaning even if the health check promise always resolves successfully, errors from action execution can still
+     *  cause the breaker to trip and vice versa. The Health check is always executed within the context of the breaker
+     *  it is passed to, so 'this' inside the function will point to the breaker instance */
+    healthCheck?: () => Promise<unknown>
+    /** The frequency with which to call the healthCheck function passed in milliseconds. Default: 5000 (5 seconds) */
+    healthCheckInterval?: number
 }
 
 export function createBreakerOptions(passedOptions: Partial<IBreakerOptions> = {}): IBreakerOptions {
@@ -46,6 +54,7 @@ export function createBreakerOptions(passedOptions: Partial<IBreakerOptions> = {
         errorThreshold: 50,
         errorFilter: error => false,
         fallback: null,
+        healthCheckInterval: 5000,
         ...passedOptions
     }
 
