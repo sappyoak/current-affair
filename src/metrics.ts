@@ -36,6 +36,21 @@ export class Metrics {
         this.populateBuckets()
     }
 
+    // @TODO Think of some ways to restrict the frequency of these calls. Few options, but need to test
+    public collectHealthEventSums() {
+        const { errorCount, totalCount } = this.buckets.reduce((acc, curr) => {
+            acc.errorCount += curr.commandFailure
+            acc.totalCount += curr.commandTotal
+            return acc
+        }, { errorCount: 0, totalCount: 0 })
+
+        return {
+            errorCount,
+            errorPercentage: errorCount > 0 ? (errorCount / (totalCount * 100)) : 0,
+            totalCount,
+        }
+    }
+
     public recordSuccess(type: string, timing?: number) {
         this.getActiveBucket()[`${type}Success`]++
         timing && this.updateTiming(type, timing)
