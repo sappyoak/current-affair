@@ -1,6 +1,7 @@
 export enum ErrorCodes {
-    CircuitBroken = 'ECIRCUITBROKEN',
-    DetachedBreaker = 'EBREAKERDETACH'
+    TaskCancelled = 'ETASKCANCEL',
+    TaskTimeout = 'ETASKTIMEOUT',
+    SephamoreFull = 'ESEPHAMOREFULL'
 }
 
 export class InternalError extends Error {
@@ -14,18 +15,26 @@ export class InternalError extends Error {
     }
 }
 
-export class CircuitBrokenError extends InternalError {
+export class TaskCancelledError extends InternalError {
     constructor(message: string = '') {
-        super(`Execution halted because the circuit breaker is open ${message}`)
+        super(`The Task was canceled ${message}`)
 
-        this.code = ErrorCodes.CircuitBroken
+        this.code = ErrorCodes.TaskCancelled
     }
 }
 
-export class DetachedBreakerError extends InternalError {
-    constructor(message: string = '') {
-        super(`Execution halted because the circuit breaker is detached. ${message}`)
+export class TaskTimeoutError extends InternalError {
+    constructor(message: string) {
+        super(message)
         
-        this.code = ErrorCodes.DetachedBreaker
+        this.code = ErrorCodes.TaskTimeout
+    }
+}
+
+export class SemaphoreFullError extends InternalError {
+    constructor(message: string) {
+        super(message)
+
+        this.code = ErrorCodes.SephamoreFull
     }
 }
