@@ -5,7 +5,7 @@ export interface IConfiguration {
      *  This will be treated as an error by the circuit as whatever service it was attempting to interact
      *  with was taking too long to respond. Provide False to actionTimeout to prevent the action from timing out
      *  Default: 2500 */
-    actionTimeout?: number | boolean
+    actionTimeout?: number
     /** Whether a circuit breaker will be enabled and used to track health and short-circuit if it trips
      *  Default: true */
     enabled: boolean
@@ -111,6 +111,10 @@ export function createConfiguration(passedOptions: Partial<IConfiguration> = {})
         ...passedOptions
     }
 
+    if (!config.actionTimeout || config.actionTimeout === 0) {
+        config.actionTimeout = Number.POSITIVE_INFINITY
+    }
+    
     config.name = config.name ?? randomUUID()
     config.group = config.group ?? config.name
 
