@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 
 import { IConfiguration, createConfiguration } from './config'
 import { CircuitBreaker } from './circuit-breaker'
+import { CircuitOpenError, SemaphoreFullError, TaskTimeoutError } from './errors'
 import { Executor } from './executor'
 import { CommandMetrics, Counters } from './metrics'
 import { Semaphore } from './semaphore'
@@ -44,12 +45,11 @@ export class Command extends EventEmitter {
             const { count, errorPercentage } = this.metrics.getHealthStats()
             
             if (!this.circuitBreaker.isAllowingRequests(count, errorPercentage)) {
-                // @TODO CircuitOpenError
-                throw 'circuit-open'
+                throw new CircuitOpenError()
             }
 
             const result = await this.semaphore.runOrSchedule(() => this.executor.execute(fn, controller), controller)
-        
+            
             if (!result.success && !result.handled) {
                 throw result.value
             }
@@ -60,14 +60,36 @@ export class Command extends EventEmitter {
         } catch (error) {
             this.metrics.incrementCounter(Counters.CommandFailure)
             this.circuitBreaker.onExecuteComplete(false)
-            this.handleError(error)
+            return this.handleError(error)
         } finally {
             controller.abort()
         }
     }
 
-    public handleError(error) {
-        // Check error for instances of different errors to increment metrics and then handle fallback. 
-        // Fallback might be more useful to implement in a different place. 
+    public handleError(error: Error) {
+        if (error instanceof TaskTimeoutError) {
+            this.metrics.incrementCounter(Counters.ExecutionTimeout)
+        } else if (error instanceof SemaphoreFullError) {
+            this.metrics.incrementCounter(Counters.SemaphoreRejection)
+        } else if (error instanceof CircuitOpenError) {
+            this.metrics.incrementCounter(Counters.ShortCircuits)
+        }
+
+        if (typeof this.config?.fallback === 'function') {
+            return this.attemptFallback(error)
+        }
+        
+        throw error
+    }
+
+    private attemptFallback(error: Error) {
+        try {
+            const result = this.config.fallback(error)
+            this.metrics.incrementCounter(Counters.FallbackSuccess)
+            return result
+        } catch (err) {
+            this.metrics.incrementCounter(Counters.FallbackFailure)
+            throw err
+        }
     }
 }

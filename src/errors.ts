@@ -1,7 +1,8 @@
 export enum ErrorCodes {
     TaskCancelled = 'ETASKCANCEL',
     TaskTimeout = 'ETASKTIMEOUT',
-    SephamoreFull = 'ESEPHAMOREFULL'
+    SephamoreFull = 'ESEPHAMOREFULL',
+    CircuitOpen = 'ECIRCUITOPEN'
 }
 
 export class InternalError extends Error {
@@ -36,5 +37,13 @@ export class SemaphoreFullError extends InternalError {
         super(message)
 
         this.code = ErrorCodes.SephamoreFull
+    }
+}
+
+export class CircuitOpenError extends InternalError {
+    constructor(message: string = '') {
+        super(`The Circuit is open. Failing all requests until it is closed. ${message}`)
+
+        this.code = ErrorCodes.CircuitOpen
     }
 }
