@@ -3,17 +3,15 @@ import { EventEmitter } from 'node:events'
 import { IConfiguration, createConfiguration } from './config'
 import { CircuitBreaker } from './circuit-breaker'
 import { CircuitOpenError, SemaphoreFullError, TaskCancelledError, TaskTimeoutError } from './errors'
-import { Executor } from './executor'
-import { CommandMetrics, Counters } from './metrics'
+import { CommandMetrics, Counters, Timings } from './metrics'
 import { Semaphore } from './semaphore'
-import { createChildAbortController, handlePromiseTimeout } from './utils'
+import { createChildAbortController, createTimer, handlePromiseTimeout } from './utils'
 
 export class Command extends EventEmitter {
     protected config: IConfiguration
     protected name: string
     protected group: string
     protected commandState
-    protected executor: Executor
     protected metrics: CommandMetrics
     protected semaphore: Semaphore
     protected circuitBreaker: CircuitBreaker
@@ -24,8 +22,6 @@ export class Command extends EventEmitter {
         this.config = createConfiguration(options)
         this.name = this.config.name
         this.group = this.config.group
-
-        this.executor = new Executor(this.config.actionTimeout, this.config.errorFilter)
         this.metrics = new CommandMetrics({
             name: this.name,
             group: this.group,
@@ -40,7 +36,8 @@ export class Command extends EventEmitter {
 
     async execute(fn, signal) {
         const controller = createChildAbortController(signal)
-        
+        const timer = createTimer()
+
         try {
             const { count, errorPercentage } = this.metrics.getHealthStats()
             
@@ -48,13 +45,14 @@ export class Command extends EventEmitter {
                 throw new CircuitOpenError()
             }
 
-            const result = await this.semaphore.runOrSchedule(() => this.executor.execute(fn, controller), controller)
-            
+            const result = await this.semaphore.runOrSchedule(() => this._execute(fn, controller), controller)
+                
             if (!result.success && !result.handled) {
                 throw result.value
             }
 
             this.metrics.incrementCounter(Counters.CommandSuccess)
+            this.metrics.addTiming(Timings.CommandTiming, timer())
             this.circuitBreaker.onExecuteComplete(true)
             return result
         } catch (error) {
@@ -64,6 +62,7 @@ export class Command extends EventEmitter {
             }
 
             this.metrics.incrementCounter(Counters.CommandFailure)
+            this.metrics.addTiming(Timings.CommandTiming, timer())
             this.circuitBreaker.onExecuteComplete(false)
             return await this.handleError(error, controller)
         } finally {
@@ -94,16 +93,40 @@ export class Command extends EventEmitter {
             throw error
         }
 
+        const timer = createTimer()
+
         try {
             const result = await handlePromiseTimeout(() => this.config.fallback(error), this.config.fallbackTimeout, controller)
             this.metrics.incrementCounter(Counters.FallbackSuccess)
+            this.metrics.addTiming(Timings.FallbackTiming, timer())
             return result
         } catch (innerError) {
             this.metrics.incrementCounter(Counters.FallbackFailure)
+            this.metrics.addTiming(Timings.FallbackTiming, timer())
             if (innerError instanceof TaskTimeoutError) {
                 this.metrics.incrementCounter(Counters.FallbackTimeout)
             }
             throw innerError
         }
+    }
+
+    private async _execute(fn, controller: globalThis.AbortController) {
+        const timer = createTimer()
+
+        return await handlePromiseTimeout(async () => {
+            if (controller.signal.aborted) {
+                throw new TaskCancelledError()
+            } 
+
+            try {
+                const result = await fn()
+                this.metrics.addTiming(Timings.ExecutionTiming, timer())
+                return { success: true, value: result }
+            } catch (error) {
+                this.metrics.addTiming(Timings.ExecutionTiming, timer())
+                return { handled: this.config.errorFilter(error), success: false, value: error }
+            }
+
+        }, this.config.actionTimeout, controller)
     }
 }
