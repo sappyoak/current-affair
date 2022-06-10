@@ -54,6 +54,14 @@ export interface IConfiguration {
     /** This defines the percentiles that should be calculated and returned in metrics.
      *  Default: [0, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995, 1] */
     percentiles?: number[]
+    /** This property is the same as rollingWindowDuration but applies specifically to the rollingPercentile because
+     *  sometimes you want that sample window to be a different length than the one used for determining failures.
+     *  Default: rollingWindowDuration */
+    rollingPercentileWindowDuration?: number
+    /** This property is the same as rollingBucketCount but applies specifically to the rollingPercentile because 
+     *  sometimes you want a different about of sample sets than the ones used for determining failures.
+     *  Default: rollingBucketCount */
+    rollingPercentileBucketCount?: number
     /** This property set the time to wait in milliseconds between allowing metric/health snapshots to be taken
      *  and published. For high-volume circuits this continual calculation can become CPU intensive, so this property
      *  allows you to control that frequency.
@@ -118,5 +126,8 @@ export function createConfiguration(passedOptions: Partial<IConfiguration> = {})
     config.name = config.name ?? randomUUID()
     config.group = config.group ?? config.name
 
+    config.rollingPercentileWindowDuration = config.rollingPercentileWindowDuration ?? config.rollingWindowDuration
+    config.rollingPercentileBucketCount = config.rollingPercentileBucketCount ?? config.rollingBucketCount
+    
     return config
 }

@@ -2,13 +2,12 @@ import { IConfiguration } from "../config"
 import { RollingCounterWindow, RollingPercentileWindow } from './rolling-window'
 import { Counters, Timings } from './metric-types'
 
-export type CommandMetricsOptions = Pick<IConfiguration, 'name' | 'group' | 'rollingWindowDuration' | 'rollingBucketCount'>
+type CommandMetricsOptionsKeys = 'name' | 'group' | 'rollingWindowDuration' | 'rollingBucketCount' | 'rollingPercentileWindowDuration' | 'rollingPercentileBucketCount'
+export type CommandMetricsOptions = Pick<IConfiguration, CommandMetricsOptionsKeys>
 
 export class CommandMetrics {
     public commandName: string
     public commandGroup: string
-    public rollingWindowDuration: number
-    public rollingBucketCount: number
 
     protected rollingCounterWindow: RollingCounterWindow
     protected rollingPercentileWindow: RollingPercentileWindow
@@ -16,16 +15,13 @@ export class CommandMetrics {
     public constructor(options: CommandMetricsOptions) {
         this.commandName = options.name
         this.commandGroup = options.group
-        this.rollingWindowDuration = options.rollingWindowDuration
-        this.rollingBucketCount = options.rollingBucketCount
         
-        // It might be good to be able to pass different durations and bucket counts for these separate windows
-        this.rollingCounterWindow = new RollingCounterWindow(this.rollingWindowDuration, this.rollingBucketCount)
-        this.rollingPercentileWindow = new RollingPercentileWindow(this.rollingWindowDuration, this.rollingBucketCount)
+        this.rollingCounterWindow = new RollingCounterWindow(options.rollingWindowDuration, options.rollingBucketCount)
+        this.rollingPercentileWindow = new RollingPercentileWindow(options.rollingPercentileWindowDuration, options.rollingPercentileBucketCount)
     }
 
     public getHealthStats() {
-        const sum = this.rollingCounterWindow.getCurrentWindowSum()
+        const sum = (this.rollingCounterWindow.getCurrentWindowSum() as number[])
         const errorCount = sum[Counters.ExecutionFailure] + sum[Counters.ExecutionTimeout] + sum[Counters.SemaphoreRejection] + sum[Counters.CommandFailure] + sum[Counters.ShortCircuits]
         const total = errorCount + sum[Counters.CommandSuccess]
 
@@ -54,10 +50,10 @@ export class CommandMetrics {
     }
 
     public addTiming(key: Timings, timing: number) {
-        this.rollingPercentileWindow.getCurrentBucket().update(timing)
+        this.rollingPercentileWindow.getCurrentBucket().update(key, timing)
     }
 
-    public getCurrentTimings(key?: Timings) {
+    public getCurrentTimings(key?: Timings): number[] | number[][] {
         const timings = this.rollingPercentileWindow.getCurrentBucket()
         return key ? timings[key] : timings
     }

@@ -28,7 +28,7 @@ export abstract class RollingWindow<T>  {
     public abstract onRoll(data: PassedBucketType<T>['data'])
     public abstract onFlush(data: PassedBucketType<T>['data'])
 
-    public getCurrentBucket() {
+    public getCurrentBucket(): PassedBucketType<T> {
         const currentTime = Date.now()
         const currentBucket = this.buckets[this.currentBucketIndex]
 
