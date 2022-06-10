@@ -27,9 +27,9 @@ export class Semaphore {
     public async runOrSchedule(fn, controller: globalThis.AbortController) {
         // Short-circuit if action has already been canceled
         if (controller.signal.aborted) {
-            return { handled: true, success: false, value: new TaskCancelledError() }
+            throw new TaskCancelledError()
         }
-
+        
         if (this.active < this.maxActionConcurrency) {
             this.active++
             try {

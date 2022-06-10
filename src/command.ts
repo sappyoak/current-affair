@@ -2,11 +2,11 @@ import { EventEmitter } from 'node:events'
 
 import { IConfiguration, createConfiguration } from './config'
 import { CircuitBreaker } from './circuit-breaker'
-import { CircuitOpenError, SemaphoreFullError, TaskTimeoutError } from './errors'
+import { CircuitOpenError, SemaphoreFullError, TaskCancelledError, TaskTimeoutError } from './errors'
 import { Executor } from './executor'
 import { CommandMetrics, Counters } from './metrics'
 import { Semaphore } from './semaphore'
-import { createChildAbortController } from './utils'
+import { createChildAbortController, handlePromiseTimeout } from './utils'
 
 export class Command extends EventEmitter {
     protected config: IConfiguration
@@ -58,15 +58,20 @@ export class Command extends EventEmitter {
             this.circuitBreaker.onExecuteComplete(true)
             return result
         } catch (error) {
+            // If a task was cancelled we shouldn't do anything further
+            if (error instanceof TaskCancelledError) {
+                return
+            }
+
             this.metrics.incrementCounter(Counters.CommandFailure)
             this.circuitBreaker.onExecuteComplete(false)
-            return this.handleError(error)
+            return await this.handleError(error, controller)
         } finally {
             controller.abort()
         }
     }
 
-    public handleError(error: Error) {
+    public handleError(error: Error, controller: globalThis.AbortController) {
         if (error instanceof TaskTimeoutError) {
             this.metrics.incrementCounter(Counters.ExecutionTimeout)
         } else if (error instanceof SemaphoreFullError) {
@@ -76,20 +81,29 @@ export class Command extends EventEmitter {
         }
 
         if (typeof this.config?.fallback === 'function') {
-            return this.attemptFallback(error)
+            return this.attemptFallback(error, controller)
         }
         
         throw error
     }
 
-    private attemptFallback(error: Error) {
+    private async attemptFallback(error: Error, controller) {
+        // If this was canceled after an error has been thrown in the main function, just return the original 
+        // error
+        if (controller.signal.aborted) {
+            throw error
+        }
+
         try {
-            const result = this.config.fallback(error)
+            const result = await handlePromiseTimeout(() => this.config.fallback(error), this.config.fallbackTimeout, controller)
             this.metrics.incrementCounter(Counters.FallbackSuccess)
             return result
-        } catch (err) {
+        } catch (innerError) {
             this.metrics.incrementCounter(Counters.FallbackFailure)
-            throw err
+            if (innerError instanceof TaskTimeoutError) {
+                this.metrics.incrementCounter(Counters.FallbackTimeout)
+            }
+            throw innerError
         }
     }
 }
