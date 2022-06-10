@@ -15,6 +15,14 @@ export class CircuitBreaker {
         private sleepWindow: number
     ) {}
     
+    public inspect() {
+        return {
+            lastOpened: this.lastOpenedAt,
+            isPendingClose: this.isPendingClose,
+            state: this.state,
+        }
+    }
+    
     public isAllowingRequests(commandCount: number, errorPercentage: number) {
         if (this.state === CircuitState.Open) {
             if (Date.now() - this.lastOpenedAt > this.sleepWindow) {

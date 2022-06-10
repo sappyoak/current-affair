@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "",
   "main": "index.js",
+  "module": true,
   "scripts": {
     "test": "ava --color=true",
     "watch": "tsc -w --target=es6"
@@ -46,7 +47,6 @@
       "--loader=ts-node/esm",
       "--trace-deprecation",
       "--trace-exit",
-      "--trace-sigint",
       "--napi-modules"
     ]
   },
